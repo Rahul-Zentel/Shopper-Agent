@@ -1,0 +1,8 @@
+playwright
+pydantic
+nest_asyncio
+python-dotenv
+langchain
+langchain-openai
+fastapi
+uvicorn
