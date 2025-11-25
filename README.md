@@ -20,7 +20,7 @@ The frontend will start on the default development port (usually http://localhos
 🧠 2. Backend Setup
 Requirements
 
-Python 3.10+
+Python 3.13.9
 
 Virtual environment (recommended)
 
