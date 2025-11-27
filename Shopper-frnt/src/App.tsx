@@ -34,7 +34,7 @@ const getInitialTaskSteps = (): TaskStep[] =>
 function App() {
   const [view, setView] = useState<View>('search')
   const [query, setQuery] = useState('')
-  const [marketplace, setMarketplace] = useState('flipkart')
+  const [location, setLocation] = useState('india')
   const [submittedQuery, setSubmittedQuery] = useState(DEFAULT_QUERY)
   const [taskSteps, setTaskSteps] = useState<TaskStep[]>(() => getInitialTaskSteps())
   const [showDetailedLog, setShowDetailedLog] = useState(false)
@@ -63,7 +63,7 @@ function App() {
       setTaskSteps(prev => prev.map(s => s.id === 1 ? { ...s, status: 'loading' } : s))
 
       // Start the API call
-      const data = await searchProducts(trimmed || DEFAULT_QUERY, marketplace)
+      const data = await searchProducts(trimmed || DEFAULT_QUERY, location)
 
       // Step 1 Done, Step 2 Loading
       setTaskSteps(prev => prev.map(s => {
@@ -141,10 +141,10 @@ function App() {
         {view === 'search' && (
           <SearchPage
             query={query}
-            marketplace={marketplace}
+            location={location}
             disabled={disableShop}
             onChange={(value) => setQuery(value)}
-            onMarketplaceChange={(value) => setMarketplace(value)}
+            onLocationChange={(value) => setLocation(value)}
             onSubmit={(event) => {
               handleSubmit(event)
             }}

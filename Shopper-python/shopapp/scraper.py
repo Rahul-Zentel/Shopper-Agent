@@ -2,7 +2,7 @@ import asyncio
 import urllib.parse
 from typing import List
 from playwright.async_api import async_playwright
-from models import Product
+from .models import Product
 
 async def flipkart_search_products_async(
     query: str,
