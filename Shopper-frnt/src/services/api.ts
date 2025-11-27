@@ -12,7 +12,11 @@ export interface SearchResponse {
   analysis: string;
 }
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL as string | undefined;
+
+if (!API_BASE_URL) {
+  throw new Error('VITE_BACKEND_URL is not defined in the environment');
+}
 
 export async function searchProducts(query: string, location: string = 'india'): Promise<SearchResponse> {
   const response = await fetch(`${API_BASE_URL}/search`, {

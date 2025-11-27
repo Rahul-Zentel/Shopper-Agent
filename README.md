@@ -17,6 +17,17 @@ npm run dev
 
 The frontend will start on the default development port (usually http://localhost:5173 or similar depending on your setup).
 
+🧩 1.5 Configure environment
+
+Create a `.env` file inside `Shopper-frnt` by copying the provided example and update it with your deployment backend URL:
+
+```
+cd Shopper-frnt
+copy env.example .env   # on Windows; use cp on macOS/Linux
+# then edit .env to point at your deployed backend, e.g.
+VITE_BACKEND_URL=https://your-api.example.com
+```
+
 🧠 2. Backend Setup
 Requirements
 
