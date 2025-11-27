@@ -1,3 +1,15 @@
+# Shopper Frontend
+
+## Environment Variables
+
+Create an `.env` file (you can copy `env.example`) and set the backend URL that the frontend should call:
+
+```
+VITE_BACKEND_URL=http://127.0.0.1:8000
+```
+
+---
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
