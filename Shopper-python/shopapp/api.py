@@ -6,9 +6,19 @@ from typing import List, Optional
 from dotenv import load_dotenv
 import nest_asyncio
 
-from agent import analyze_prompt
-from scraper import flipkart_search_products_async
-from ranking import rank_products
+try:
+    from .agent import analyze_prompt, generate_quick_notes
+    from .scraper import flipkart_search_products_async
+    from .ranking import rank_products
+except ImportError:
+    # Fallback for when running directly from shopapp directory
+    import sys
+    import os
+    # Add parent dir to path to allow absolute import of shopapp
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from shopapp.agent import analyze_prompt, generate_quick_notes
+    from shopapp.scraper import flipkart_search_products_async
+    from shopapp.ranking import rank_products
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -42,6 +52,7 @@ class Product(BaseModel):
 class SearchResponse(BaseModel):
     products: List[Product]
     analysis: str
+    quick_notes: Optional[str] = None
 
 @app.post("/search", response_model=SearchResponse)
 async def search_products(request: SearchRequest):
@@ -59,27 +70,24 @@ async def search_products(request: SearchRequest):
             if prefs.max_price: analysis_summary += f", Max Price: {prefs.max_price}"
         except Exception as e:
             print(f"Agent analysis failed: {e}, using query as-is")
-            from models import ProductSearchPreferences
+            try:
+                from .models import ProductSearchPreferences
+            except ImportError:
+                from shopapp.models import ProductSearchPreferences
             prefs = ProductSearchPreferences(query=user_prompt)
             analysis_summary = f"Searching for '{user_prompt}'"
         
-        # 2. Scrape
-        marketplace = request.marketplace.lower()
-        print(f"Scraping {marketplace} for: {prefs.query}")
-        print(f"Starting Playwright scraping in separate thread...")
+        # 2. Scrape based on location
+        location = request.marketplace.lower()  # Using marketplace field for location temporarily
+        print(f"Scraping for location: {location}, query: {prefs.query}")
+        
+        all_products = []
         
         try:
             import asyncio
             
-            # Choose scraper based on marketplace
-            if marketplace == "amazon":
-                from scraper_amazon import amazon_search_products_async
-                scraper_func = amazon_search_products_async
-            else:  # Default to flipkart
-                scraper_func = flipkart_search_products_async
-            
             # Run scraper in a separate thread to avoid event loop conflicts
-            def run_scraper_sync():
+            def run_scraper_sync(scraper_func, source_name):
                 """Run the async scraper in a new event loop in a separate thread"""
                 import asyncio
                 loop = asyncio.new_event_loop()
@@ -88,57 +96,91 @@ async def search_products(request: SearchRequest):
                     result = loop.run_until_complete(
                         scraper_func(prefs.query, max_results=3, headless=True)
                     )
+                    # Add source to each product
+                    for prod in result:
+                        prod.marketplace = source_name
                     return result
+                except Exception as e:
+                    print(f"Error in {source_name} scraper: {e}")
+                    return []
                 finally:
                     loop.close()
             
-            # Execute in thread pool with timeout
-            products = await asyncio.wait_for(
-                asyncio.to_thread(run_scraper_sync),
-                timeout=90.0
+            # Determine which scrapers to use based on location
+            if location == "india":
+                print("Scraping Indian retailers: Flipkart, Amazon.in")
+                try:
+                    from .scraper import flipkart_search_products_async
+                    from .scraper_amazon import amazon_search_products_async
+                except ImportError:
+                    from shopapp.scraper import flipkart_search_products_async
+                    from shopapp.scraper_amazon import amazon_search_products_async
+                
+                scrapers = [
+                    (flipkart_search_products_async, "Flipkart"),
+                    (amazon_search_products_async, "Amazon.in"),
+                ]
+            else:  # USA
+                print("Scraping US retailers: Walmart, Target, Amazon.com, Etsy, Best Buy")
+                try:
+                    from .scraper_walmart import walmart_search_products_async
+                    from .scraper_target import target_search_products_async
+                    from .scraper_amazon_us import amazon_us_search_products_async
+                    from .scraper_etsy import etsy_search_products_async
+                    from .scraper_bestbuy import bestbuy_search_products_async
+                except ImportError:
+                    from shopapp.scraper_walmart import walmart_search_products_async
+                    from shopapp.scraper_target import target_search_products_async
+                    from shopapp.scraper_amazon_us import amazon_us_search_products_async
+                    from shopapp.scraper_etsy import etsy_search_products_async
+                    from shopapp.scraper_bestbuy import bestbuy_search_products_async
+                
+                scrapers = [
+                    (walmart_search_products_async, "Walmart"),
+                    (target_search_products_async, "Target"),
+                    (amazon_us_search_products_async, "Amazon.com"),
+                    (etsy_search_products_async, "Etsy"),
+                    (bestbuy_search_products_async, "Best Buy"),
+                ]
+            
+            # Run all scrapers concurrently with timeout
+            scraper_tasks = []
+            for scraper_func, source_name in scrapers:
+                task = asyncio.to_thread(run_scraper_sync, scraper_func, source_name)
+                scraper_tasks.append(task)
+            
+            # Wait for all scrapers with timeout
+            results = await asyncio.wait_for(
+                asyncio.gather(*scraper_tasks, return_exceptions=True),
+                timeout=120.0
             )
-            print(f"Scraping completed. Found {len(products)} products")
+            
+            # Combine results from all scrapers
+            for result in results:
+                if isinstance(result, list):
+                    all_products.extend(result)
+                elif isinstance(result, Exception):
+                    print(f"Scraper failed with exception: {result}")
+            
+            print(f"Total products scraped: {len(all_products)}")
             
         except asyncio.TimeoutError:
-            print("Scraping timed out after 90 seconds")
-            products = []
+            print("Scraping timed out after 120 seconds")
         except Exception as scrape_error:
             print(f"Scraping failed: {scrape_error}")
             import traceback
             print(traceback.format_exc())
-            products = []
-        # try:
-        #     products = await flipkart_search_products_async(prefs.query, max_results=10, headless=True)
-        # except Exception as scrape_error:
-        #     print(f"Scraping failed: {scrape_error}")
-        #     import traceback
-        #     print(traceback.format_exc())
-        #     # Return mock data if scraping fails
-        #     mock_products = [
-        #         Product(
-        #             title=f"Sample Product for {prefs.query}",
-        #             price=999.0,
-        #             rating=4.0,
-        #             url="https://www.flipkart.com",
-        #             image_url=None,
-        #             source="Flipkart (Mock Data)"
-        #         )
-        #     ]
-        #     return SearchResponse(
-        #         products=mock_products, 
-        #         analysis=analysis_summary + ". Note: Using sample data due to scraping issue."
-        #     )
         
-        if not products:
+        if not all_products:
             return SearchResponse(products=[], analysis=analysis_summary + ". No products found.")
 
         # 3. Rank
         print("Ranking products...")
         try:
-            ranked_products_with_score = rank_products(products, prefs)
+            ranked_products_with_score = rank_products(all_products, prefs)
         except Exception as rank_error:
             print(f"Ranking failed: {rank_error}, returning unranked products")
-            ranked_products_with_score = [(p, 0.0) for p in products]
+            ranked_products_with_score = [(p, 0.0) for p in all_products]
         
         # Format response
         response_products = []
@@ -161,10 +203,14 @@ async def search_products(request: SearchRequest):
                 rating=rating_val,
                 url=prod.url,
                 image_url=getattr(prod, 'thumbnail_url', None),
-                source="Flipkart"
+                source=prod.marketplace
             ))
 
-        return SearchResponse(products=response_products, analysis=analysis_summary)
+        # Generate Quick Notes
+        print("Generating quick notes...")
+        quick_notes = generate_quick_notes(response_products)
+
+        return SearchResponse(products=response_products, analysis=analysis_summary, quick_notes=quick_notes)
 
     except Exception as e:
         import traceback
@@ -172,6 +218,7 @@ async def search_products(request: SearchRequest):
         print(f"Error processing request: {e}")
         print(f"Full traceback:\n{error_details}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/search-test")
 async def search_test(request: SearchRequest):

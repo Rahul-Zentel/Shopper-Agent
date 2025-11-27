@@ -1,6 +1,6 @@
 from typing import List, Tuple
 import math
-from models import Product, ProductSearchPreferences
+from .models import Product, ProductSearchPreferences
 
 def score_product(prod: Product, prefs: ProductSearchPreferences) -> float:
     """
