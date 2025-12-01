@@ -113,7 +113,8 @@ async def search_products(request: SearchRequest, http_request: Request):
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
         if request.mode == "deep-agent":
-            return await search_deep_agent(request)
+            # Pass along the original HTTP request so deep agent can resolve IP/headers
+            return await search_deep_agent(request, http_request)
 
         # 1. Analyze Prompt
         print(f"Analyzing prompt: {user_prompt}")
