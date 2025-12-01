@@ -10,6 +10,7 @@ try:
     from .agent import analyze_prompt, generate_quick_notes
     from .scraper import flipkart_search_products_async
     from .ranking import rank_products
+    from .deep_agent import DeepShoppingAgent
 except ImportError:
     # Fallback for when running directly from shopapp directory
     import sys
@@ -19,6 +20,7 @@ except ImportError:
     from shopapp.agent import analyze_prompt, generate_quick_notes
     from shopapp.scraper import flipkart_search_products_async
     from shopapp.ranking import rank_products
+    from shopapp.deep_agent import DeepShoppingAgent
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -40,6 +42,7 @@ app.add_middleware(
 class SearchRequest(BaseModel):
     query: str
     marketplace: str = "flipkart"  # Default to flipkart
+    mode: str = "scraper"  # "scraper" or "deep-agent"
 
 class Product(BaseModel):
     title: str
@@ -60,6 +63,9 @@ async def search_products(request: SearchRequest):
         user_prompt = request.query
         if not user_prompt:
             raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+        if request.mode == "deep-agent":
+            return await search_deep_agent(request)
 
         # 1. Analyze Prompt
         print(f"Analyzing prompt: {user_prompt}")
@@ -254,6 +260,58 @@ async def search_test(request: SearchRequest):
 @app.post("/test")
 async def test_endpoint(request: SearchRequest):
     return {"message": f"Received query: {request.query}"}
+
+@app.post("/search-deep-agent")
+async def search_deep_agent(request: SearchRequest):
+    try:
+        user_prompt = request.query
+        if not user_prompt:
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+        location = request.marketplace.lower()
+        print(f"Deep Agent Mode - Processing: {user_prompt}, Location: {location}")
+
+        deep_agent = DeepShoppingAgent()
+        result = await deep_agent.process_shopping_request(user_prompt, location)
+
+        products = []
+        for prod_data in result.get("products", []):
+            price_str = prod_data.get("price", "0")
+            try:
+                price_val = float(price_str.replace("₹", "").replace("$", "").replace(",", "").strip())
+            except (ValueError, AttributeError):
+                price_val = 0.0
+
+            rating_str = prod_data.get("rating", "0")
+            try:
+                rating_val = float(rating_str) if rating_str else 0.0
+            except (ValueError, TypeError):
+                rating_val = 0.0
+
+            products.append(Product(
+                title=prod_data.get("title", "Unknown Product"),
+                price=price_val,
+                rating=rating_val,
+                url=prod_data.get("url", ""),
+                image_url=prod_data.get("image_url"),
+                source=prod_data.get("source", "Web Search")
+            ))
+
+        analysis = result.get("query_understanding", {}).get("notes", "Analysis completed")
+        quick_notes = result.get("quick_notes", "")
+
+        return SearchResponse(
+            products=products,
+            analysis=analysis,
+            quick_notes=quick_notes
+        )
+
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error in deep agent: {e}")
+        print(f"Full traceback:\n{error_details}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 async def root():

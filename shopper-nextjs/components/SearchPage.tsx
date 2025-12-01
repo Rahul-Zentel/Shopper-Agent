@@ -1,20 +1,48 @@
 import type { FormEvent } from 'react'
+import { SearchMode } from '@/lib/types'
 
-type SearchPageProps = {
+interface SearchPageProps {
   query: string
   location: string
+  mode: SearchMode
   disabled: boolean
   onChange: (value: string) => void
   onLocationChange: (value: string) => void
+  onModeChange: (value: SearchMode) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }
 
-export function SearchPage({ query, location, disabled, onChange, onLocationChange, onSubmit }: SearchPageProps) {
+export function SearchPage({
+  query,
+  location,
+  mode,
+  disabled,
+  onChange,
+  onLocationChange,
+  onModeChange,
+  onSubmit
+}: SearchPageProps) {
   return (
     <section className="search-panel">
       <h1>What do you want to shop today?</h1>
       <form onSubmit={onSubmit} className="search-form">
-        {/* Location Toggle */}
+        <div className="mode-toggle-container">
+          <button
+            type="button"
+            className={`mode-toggle-btn ${mode === 'scraper' ? 'active' : ''}`}
+            onClick={() => onModeChange('scraper')}
+          >
+            Scraper Mode
+          </button>
+          <button
+            type="button"
+            className={`mode-toggle-btn ${mode === 'deep-agent' ? 'active' : ''}`}
+            onClick={() => onModeChange('deep-agent')}
+          >
+            Deep Agent Mode
+          </button>
+        </div>
+
         <div className="location-toggle-container">
           <button
             type="button"
@@ -32,7 +60,6 @@ export function SearchPage({ query, location, disabled, onChange, onLocationChan
           </button>
         </div>
 
-        {/* Search Input */}
         <div className="search-input-wrapper">
           <input
             type="text"
@@ -50,4 +77,3 @@ export function SearchPage({ query, location, disabled, onChange, onLocationChan
     </section>
   )
 }
-

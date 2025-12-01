@@ -1,14 +1,14 @@
-import type { Product } from '../services/api'
+import { Product } from '@/lib/types'
 
-type ResultsPageProps = {
+interface ResultsPageProps {
   query: string
   products: Product[]
   analysis: string
-  quick_notes?: string
+  quickNotes?: string
   onBack: () => void
 }
 
-export function ResultsPage({ query, products, analysis, quick_notes, onBack }: ResultsPageProps) {
+export function ResultsPage({ query, products, analysis, quickNotes, onBack }: ResultsPageProps) {
   return (
     <section className="results-panel">
       <button onClick={onBack} className="back-link">
@@ -42,7 +42,6 @@ export function ResultsPage({ query, products, analysis, quick_notes, onBack }: 
             className="product-card"
             style={{ textDecoration: 'none', color: 'inherit' }}
           >
-            {/* Product Image */}
             <div className="product-image-container">
               {product.image_url ? (
                 <img
@@ -50,7 +49,6 @@ export function ResultsPage({ query, products, analysis, quick_notes, onBack }: 
                   alt={product.title}
                   className="product-image"
                   onError={(e) => {
-                    // Fallback to placeholder if image fails to load
                     e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23333" width="200" height="200"/%3E%3Ctext fill="%23666" font-family="sans-serif" font-size="14" x="50%25" y="50%25" text-anchor="middle" dominant-baseline="middle"%3ENo Image%3C/text%3E%3C/svg%3E'
                   }}
                 />
@@ -65,15 +63,12 @@ export function ResultsPage({ query, products, analysis, quick_notes, onBack }: 
               )}
             </div>
 
-            {/* Source Badge */}
             <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: '12px' }}>
               {product.source || 'Product'}
             </div>
 
-            {/* Product Title */}
             <h3>{product.title}</h3>
 
-            {/* Price and Rating */}
             <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div className="price">
                 {product.source && (product.source.includes('India') || product.source === 'Flipkart' || product.source === 'Amazon.in')
@@ -87,7 +82,7 @@ export function ResultsPage({ query, products, analysis, quick_notes, onBack }: 
         ))}
       </div>
 
-      {quick_notes && (
+      {quickNotes && (
         <div style={{
           marginTop: '40px',
           padding: '24px',
@@ -111,7 +106,7 @@ export function ResultsPage({ query, products, analysis, quick_notes, onBack }: 
             lineHeight: '1.8',
             whiteSpace: 'pre-line'
           }}>
-            {quick_notes}
+            {quickNotes}
           </div>
         </div>
       )}

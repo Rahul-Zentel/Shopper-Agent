@@ -1,6 +1,8 @@
-type TasksPageProps = {
+import { TaskStep } from '@/lib/types'
+
+interface TasksPageProps {
   queryText: string
-  steps: { id: number; label: string; status: 'done' | 'loading' | 'pending' | 'error' }[]
+  steps: TaskStep[]
   onBack: () => void
   onShowResults: () => void
   showDetailedLog: boolean
@@ -18,10 +20,10 @@ export function TasksPage({
   return (
     <section className="tasks-panel">
       <button type="button" className="back-link" onClick={onBack}>
-        &lt;Back
+        ← Back
       </button>
       <div className="panel-heading">
-        <span className="label">Shopping for :</span>
+        <span className="label">Shopping for:</span>
         <span className="value">{queryText}</span>
       </div>
       <ul className="task-list">
@@ -47,12 +49,11 @@ export function TasksPage({
       {showDetailedLog && (
         <div className="detailed-log" role="region" aria-live="polite">
           <p className="log-title">Detailed log</p>
-          <div className="log-row">Analyzing preference data for Admin</div>
-          <div className="log-row">Comparing shortlisted phones across 25-35k range</div>
-          <div className="log-row">Aggregating online reviews and availability</div>
+          <div className="log-row">Analyzing preference data</div>
+          <div className="log-row">Searching across multiple marketplaces</div>
+          <div className="log-row">Ranking and filtering results</div>
         </div>
       )}
     </section>
   )
 }
-

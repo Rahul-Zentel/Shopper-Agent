@@ -1,19 +1,12 @@
+'use client'
+
 import { useCallback, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { SearchPage } from './pages/SearchPage'
-import { TasksPage } from './pages/TasksPage'
-import { ResultsPage } from './pages/ResultsPage'
-import { searchProducts, type Product } from './services/api'
-import './App.css'
-
-type View = 'search' | 'task' | 'results'
-type TaskStatus = 'done' | 'loading' | 'pending' | 'error'
-
-type TaskStep = {
-  id: number
-  label: string
-  status: TaskStatus
-}
+import { SearchPage } from '@/components/SearchPage'
+import { TasksPage } from '@/components/TasksPage'
+import { ResultsPage } from '@/components/ResultsPage'
+import { searchProducts } from '@/lib/api'
+import type { Product, View, TaskStep, SearchMode } from '@/lib/types'
 
 const DEFAULT_QUERY = 'A smart phone with modern features'
 
@@ -31,15 +24,17 @@ const getInitialTaskSteps = (): TaskStep[] =>
     status: index === 0 ? 'loading' : 'pending',
   }))
 
-function App() {
+export default function Home() {
   const [view, setView] = useState<View>('search')
   const [query, setQuery] = useState('')
   const [location, setLocation] = useState('india')
+  const [mode, setMode] = useState<SearchMode>('scraper')
   const [submittedQuery, setSubmittedQuery] = useState(DEFAULT_QUERY)
   const [taskSteps, setTaskSteps] = useState<TaskStep[]>(() => getInitialTaskSteps())
   const [showDetailedLog, setShowDetailedLog] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [analysis, setAnalysis] = useState<string>('')
+  const [quickNotes, setQuickNotes] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
   const disableShop = useMemo(() => query.trim().length === 0, [query])
@@ -59,22 +54,15 @@ function App() {
     setView('task')
 
     try {
-      // Step 1: Analyzing
       setTaskSteps(prev => prev.map(s => s.id === 1 ? { ...s, status: 'loading' } : s))
 
-      // Start the API call
-      const data = await searchProducts(trimmed || DEFAULT_QUERY, location)
+      const data = await searchProducts(trimmed || DEFAULT_QUERY, location, mode)
 
-      // Step 1 Done, Step 2 Loading
       setTaskSteps(prev => prev.map(s => {
         if (s.id === 1) return { ...s, status: 'done' }
-        if (s.id === 2) return { ...s, status: 'loading' } // Pretend searching is happening now (though API returned)
+        if (s.id === 2) return { ...s, status: 'loading' }
         return s
       }))
-
-      // Simulate some delay for visual effect of "steps" since API returns everything at once
-      // In a real streaming setup, we'd update as data comes in.
-      // Here we just fake the progress for the user experience.
 
       await new Promise(resolve => setTimeout(resolve, 800))
       setTaskSteps(prev => prev.map(s => {
@@ -92,11 +80,11 @@ function App() {
 
       setProducts(data.products)
       setAnalysis(data.analysis)
+      setQuickNotes(data.quick_notes || '')
 
       await new Promise(resolve => setTimeout(resolve, 500))
       setTaskSteps(prev => prev.map(s => s.id === 4 ? { ...s, status: 'done' } : s))
 
-      // Go to results
       setTimeout(() => {
         setView('results')
       }, 500)
@@ -142,9 +130,11 @@ function App() {
           <SearchPage
             query={query}
             location={location}
+            mode={mode}
             disabled={disableShop}
             onChange={(value) => setQuery(value)}
             onLocationChange={(value) => setLocation(value)}
+            onModeChange={(value) => setMode(value)}
             onSubmit={(event) => {
               handleSubmit(event)
             }}
@@ -174,6 +164,7 @@ function App() {
             query={submittedQuery}
             products={products}
             analysis={analysis}
+            quickNotes={quickNotes}
             onBack={() => {
               setShowDetailedLog(false)
               setView('task')
@@ -184,5 +175,3 @@ function App() {
     </div>
   )
 }
-
-export default App
