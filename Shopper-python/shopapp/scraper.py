@@ -117,7 +117,7 @@ async def flipkart_search_products_async(
                     primary_features=[],
                 )
                 products.append(product)
-                print(f"Added: {title[:40]}... | ₹{price} | ⭐{rating}")
+                print(f"Added: {title[:40]}... | Rs.{price} | Rating:{rating}")
 
             except Exception as e:
                 print(f"Error parsing card: {e}")

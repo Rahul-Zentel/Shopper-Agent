@@ -147,7 +147,7 @@ async def amazon_us_search_products_async(
                     primary_features=[],
                 )
                 products.append(product)
-                print(f"Added: {title[:50]}... | ${price} | ⭐{rating}")
+                print(f"Added: {title[:50]}... | ${price} | Rating:{rating}")
 
             except Exception as e:
                 print(f"Error parsing Amazon.com card {idx + 1}: {e}")
