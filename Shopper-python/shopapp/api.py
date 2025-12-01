@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -11,6 +11,7 @@ try:
     from .scraper import flipkart_search_products_async
     from .ranking import rank_products
     from .deep_agent import DeepShoppingAgent
+    from .utils.region import get_region_from_ip
 except ImportError:
     # Fallback for when running directly from shopapp directory
     import sys
@@ -21,6 +22,7 @@ except ImportError:
     from shopapp.scraper import flipkart_search_products_async
     from shopapp.ranking import rank_products
     from shopapp.deep_agent import DeepShoppingAgent
+    from shopapp.utils.region import get_region_from_ip
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -57,8 +59,54 @@ class SearchResponse(BaseModel):
     analysis: str
     quick_notes: Optional[str] = None
 
+
+def _get_client_ip(request: Request) -> Optional[str]:
+    """
+    Best-effort extraction of client IP from the incoming request.
+
+    This is intentionally conservative and falls back gracefully so that
+    existing behaviour is never broken if headers/proxies change.
+    """
+    # Common proxy header, can contain multiple IPs
+    x_forwarded_for = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
+    if x_forwarded_for:
+        # Take the first IP in the list
+        return x_forwarded_for.split(",")[0].strip() or None
+
+    # Fallback to the direct client host if available
+    if request.client and request.client.host:
+        return request.client.host
+
+    return None
+
+
+def _resolve_location(preferred_marketplace: str, detected_country: Optional[str]) -> str:
+    """
+    Resolve the scraper location in a backward-compatible way.
+
+    Priority:
+    1. If marketplace explicitly indicates a region (\"india\", \"usa\", etc.), respect it.
+    2. Otherwise, use IP-detected country to choose between India and USA.
+    3. Default to USA to preserve previous non-India behaviour.
+    """
+    marketplace = (preferred_marketplace or "").lower()
+
+    # Explicit overrides via marketplace field
+    if marketplace in {"india", "in"}:
+        return "india"
+    if marketplace in {"usa", "us", "united states", "united states of america"}:
+        return "usa"
+
+    # Auto-detect via IP country
+    if detected_country and detected_country.lower() == "india":
+        return "india"
+
+    # Default fallback
+    return "usa"
+
+
 @app.post("/search", response_model=SearchResponse)
-async def search_products(request: SearchRequest):
+async def search_products(request: SearchRequest, http_request: Request):
     try:
         user_prompt = request.query
         if not user_prompt:
@@ -82,10 +130,18 @@ async def search_products(request: SearchRequest):
                 from shopapp.models import ProductSearchPreferences
             prefs = ProductSearchPreferences(query=user_prompt)
             analysis_summary = f"Searching for '{user_prompt}'"
-        
-        # 2. Scrape based on location
-        location = request.marketplace.lower()  # Using marketplace field for location temporarily
-        print(f"Scraping for location: {location}, query: {prefs.query}")
+
+        # 2. Determine region and scrape based on location
+        detected_country = None
+        try:
+            client_ip = _get_client_ip(http_request)
+            detected_country = get_region_from_ip(client_ip)
+        except Exception as region_error:
+            # Region detection must never break the main flow
+            print(f"Region detection failed: {region_error}")
+
+        location = _resolve_location(request.marketplace, detected_country)
+        print(f"Scraping for location: {location}, country: {detected_country}, query: {prefs.query}")
         
         all_products = []
         
@@ -262,14 +318,21 @@ async def test_endpoint(request: SearchRequest):
     return {"message": f"Received query: {request.query}"}
 
 @app.post("/search-deep-agent")
-async def search_deep_agent(request: SearchRequest):
+async def search_deep_agent(request: SearchRequest, http_request: Request):
     try:
         user_prompt = request.query
         if not user_prompt:
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-        location = request.marketplace.lower()
-        print(f"Deep Agent Mode - Processing: {user_prompt}, Location: {location}")
+        detected_country = None
+        try:
+            client_ip = _get_client_ip(http_request)
+            detected_country = get_region_from_ip(client_ip)
+        except Exception as region_error:
+            print(f"Region detection failed (deep agent): {region_error}")
+
+        location = _resolve_location(request.marketplace, detected_country)
+        print(f"Deep Agent Mode - Processing: {user_prompt}, Location: {location}, Country: {detected_country}")
 
         deep_agent = DeepShoppingAgent()
         result = await deep_agent.process_shopping_request(user_prompt, location)
