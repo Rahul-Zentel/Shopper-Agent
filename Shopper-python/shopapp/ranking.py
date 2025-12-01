@@ -20,15 +20,35 @@ def score_product(prod: Product, prefs: ProductSearchPreferences) -> float:
             dist = abs(prod.price - center) / max(center, 1e-6)
             score -= dist * 10
 
-    # 2. Rating & popularity
+    # 2. Rating & popularity (ENHANCED for top-rated products)
     if prod.rating is not None:
-        if prod.rating < prefs.min_rating:
+        # Quality threshold: Penalize products below 3.5 stars heavily
+        if prod.rating < 3.5:
+            score -= 50  # Heavy penalty for low-rated products
+        elif prod.rating < prefs.min_rating:
             score -= 30
         else:
-            score += (prod.rating - prefs.min_rating) * 8
+            # Significantly increased weight for high ratings
+            score += (prod.rating - prefs.min_rating) * 20  # Increased from 8 to 20
+            
+            # Exponential bonus for excellent products (4+ stars)
+            if prod.rating >= 4.0:
+                score += 30  # Extra boost for top-rated products
+            
+            # Additional bonus for near-perfect ratings (4.5+ stars)
+            if prod.rating >= 4.5:
+                score += 20  # Even more boost for exceptional products
 
+    # Amplified review count impact for credibility
     if prod.rating_count is not None and prod.rating_count > 0:
-        score += min(math.log10(prod.rating_count + 1) * 2, 10)
+        # Increased max impact from 10 to 25 points
+        score += min(math.log10(prod.rating_count + 1) * 5, 25)
+        
+        # Combined quality score: Rating × Review Count factor
+        # Products with both high ratings AND many reviews get extra boost
+        if prod.rating is not None and prod.rating >= 4.0:
+            quality_factor = prod.rating * math.log10(prod.rating_count + 1) * 3
+            score += min(quality_factor, 30)  # Cap at 30 points
 
     # 3. Sponsorship penalty
     if prod.is_sponsored:

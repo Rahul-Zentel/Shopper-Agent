@@ -7,18 +7,22 @@ from dotenv import load_dotenv
 import nest_asyncio
 
 try:
-    from .agent import analyze_prompt, generate_quick_notes
+    from .agent import analyze_prompt, generate_quick_notes, generate_comparison
     from .scraper import flipkart_search_products_async
     from .ranking import rank_products
+    from .utils.region import get_region_from_ip
+    from .models import ConversationMessage
 except ImportError:
     # Fallback for when running directly from shopapp directory
     import sys
     import os
     # Add parent dir to path to allow absolute import of shopapp
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from shopapp.agent import analyze_prompt, generate_quick_notes
+    from shopapp.agent import analyze_prompt, generate_quick_notes, generate_comparison
     from shopapp.scraper import flipkart_search_products_async
     from shopapp.ranking import rank_products
+    from shopapp.utils.region import get_region_from_ip
+    from shopapp.models import ConversationMessage
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -39,7 +43,9 @@ app.add_middleware(
 
 class SearchRequest(BaseModel):
     query: str
-    marketplace: str = "flipkart"  # Default to flipkart
+    marketplace: Optional[str] = None  # Optional override, otherwise auto-detect
+    client_ip: Optional[str] = None # Passed from frontend or middleware
+    history: List[ConversationMessage] = [] # Conversation history
 
 class Product(BaseModel):
     title: str
@@ -48,11 +54,15 @@ class Product(BaseModel):
     url: str
     image_url: Optional[str] = None
     source: str = "Flipkart"
+    currency: Optional[str] = "INR"
 
 class SearchResponse(BaseModel):
-    products: List[Product]
+    products: List[Product] = []
     analysis: str
     quick_notes: Optional[str] = None
+    clarifying_questions: Optional[List[str]] = None
+    reply_message: Optional[str] = None
+    action: str = "search" # "search" or "ask"
 
 @app.post("/search", response_model=SearchResponse)
 async def search_products(request: SearchRequest):
@@ -61,13 +71,32 @@ async def search_products(request: SearchRequest):
         if not user_prompt:
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-        # 1. Analyze Prompt
+        # 1. Analyze Prompt & Conversation
         print(f"Analyzing prompt: {user_prompt}")
+        
+        # Detect region first so agent knows context
+        client_ip = request.client_ip
+        region = request.marketplace if request.marketplace else get_region_from_ip(client_ip)
+        region = region.lower()
+        
         try:
-            prefs = analyze_prompt(user_prompt)
+            decision = analyze_prompt(user_prompt, request.history, region)
+            
+            if decision.action == "ask":
+                print("Agent decided to ask clarifying questions.")
+                return SearchResponse(
+                    products=[],
+                    analysis="Clarification needed",
+                    clarifying_questions=decision.clarifying_questions,
+                    reply_message=decision.reply_message,
+                    action="ask"
+                )
+                
+            # If action is search, use the extracted params
+            prefs = decision.search_params
             analysis_summary = f"Searching for '{prefs.query}'"
             if prefs.min_price: analysis_summary += f", Min Price: {prefs.min_price}"
-            if prefs.max_price: analysis_summary += f", Max Price: {prefs.max_price}"
+            
         except Exception as e:
             print(f"Agent analysis failed: {e}, using query as-is")
             try:
@@ -78,8 +107,7 @@ async def search_products(request: SearchRequest):
             analysis_summary = f"Searching for '{user_prompt}'"
         
         # 2. Scrape based on location
-        location = request.marketplace.lower()  # Using marketplace field for location temporarily
-        print(f"Scraping for location: {location}, query: {prefs.query}")
+        print(f"Detected Region: {region} (IP: {client_ip}), query: {prefs.query}")
         
         all_products = []
         
@@ -94,7 +122,7 @@ async def search_products(request: SearchRequest):
                 asyncio.set_event_loop(loop)
                 try:
                     result = loop.run_until_complete(
-                        scraper_func(prefs.query, max_results=3, headless=True)
+                        scraper_func(prefs.query, max_results=6, headless=True)
                     )
                     # Add source to each product
                     for prod in result:
@@ -107,20 +135,26 @@ async def search_products(request: SearchRequest):
                     loop.close()
             
             # Determine which scrapers to use based on location
-            if location == "india":
-                print("Scraping Indian retailers: Flipkart, Amazon.in")
+            if region in ["india", "in"]:
+                print("Scraping Indian retailers: Flipkart, Amazon.in, Croma, Reliance Digital")
                 try:
                     from .scraper import flipkart_search_products_async
                     from .scraper_amazon import amazon_search_products_async
+                    from .scraper_croma import croma_search_products_async
+                    from .scraper_reliance import reliance_search_products_async
                 except ImportError:
                     from shopapp.scraper import flipkart_search_products_async
                     from shopapp.scraper_amazon import amazon_search_products_async
+                    from shopapp.scraper_croma import croma_search_products_async
+                    from shopapp.scraper_reliance import reliance_search_products_async
                 
                 scrapers = [
                     (flipkart_search_products_async, "Flipkart"),
                     (amazon_search_products_async, "Amazon.in"),
+                    (croma_search_products_async, "Croma"),
+                    (reliance_search_products_async, "Reliance Digital"),
                 ]
-            else:  # USA
+            else:  # Default to USA
                 print("Scraping US retailers: Walmart, Target, Amazon.com, Etsy, Best Buy")
                 try:
                     from .scraper_walmart import walmart_search_products_async
@@ -155,14 +189,24 @@ async def search_products(request: SearchRequest):
                 timeout=120.0
             )
             
-            # Combine results from all scrapers
-            for result in results:
+            # Combine results from all scrapers with detailed logging
+            for i, result in enumerate(results):
+                source_name = scrapers[i][1]
                 if isinstance(result, list):
+                    print(f"✓ {source_name}: {len(result)} products scraped")
                     all_products.extend(result)
                 elif isinstance(result, Exception):
-                    print(f"Scraper failed with exception: {result}")
+                    print(f"✗ {source_name}: Failed with exception: {result}")
             
+            print(f"\n=== SCRAPING SUMMARY ===")
             print(f"Total products scraped: {len(all_products)}")
+            
+            # Show breakdown by marketplace
+            from collections import Counter
+            marketplace_counts = Counter([p.marketplace for p in all_products])
+            for marketplace, count in marketplace_counts.items():
+                print(f"  - {marketplace}: {count} products")
+            print(f"========================\n")
             
         except asyncio.TimeoutError:
             print("Scraping timed out after 120 seconds")
@@ -177,7 +221,7 @@ async def search_products(request: SearchRequest):
         # 3. Rank
         print("Ranking products...")
         try:
-            ranked_products_with_score = rank_products(all_products, prefs)
+            ranked_products_with_score = rank_products(all_products, prefs, top_k=6)
         except Exception as rank_error:
             print(f"Ranking failed: {rank_error}, returning unranked products")
             ranked_products_with_score = [(p, 0.0) for p in all_products]
@@ -203,14 +247,33 @@ async def search_products(request: SearchRequest):
                 rating=rating_val,
                 url=prod.url,
                 image_url=getattr(prod, 'thumbnail_url', None),
-                source=prod.marketplace
+                source=prod.marketplace,
+                currency=getattr(prod, 'currency', "INR")
             ))
+
+        # Check for comparison request
+        if decision.is_comparison:
+            print("Generating comparison table...")
+            comparison_table = generate_comparison(user_prompt, response_products)
+            return SearchResponse(
+                products=[], # Suppress product grid
+                analysis=comparison_table,
+                quick_notes=None,
+                reply_message=None, # Table is in analysis
+                action="search"
+            )
 
         # Generate Quick Notes
         print("Generating quick notes...")
         quick_notes = generate_quick_notes(response_products)
 
-        return SearchResponse(products=response_products, analysis=analysis_summary, quick_notes=quick_notes)
+        return SearchResponse(
+            products=response_products, 
+            analysis=analysis_summary, 
+            quick_notes=quick_notes,
+            reply_message=decision.reply_message if decision.reply_message else "Here are the best results I found.",
+            action="search"
+        )
 
     except Exception as e:
         import traceback

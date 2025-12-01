@@ -1,186 +1,235 @@
-import { useCallback, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
-import { SearchPage } from './pages/SearchPage'
-import { TasksPage } from './pages/TasksPage'
-import { ResultsPage } from './pages/ResultsPage'
-import { searchProducts, type Product } from './services/api'
+import { useState } from 'react'
+import { searchProducts, type Product, type ConversationMessage } from './services/api'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import './App.css'
 
-type View = 'search' | 'task' | 'results'
-type TaskStatus = 'done' | 'loading' | 'pending' | 'error'
-
-type TaskStep = {
-  id: number
-  label: string
-  status: TaskStatus
+interface LocalMessage extends ConversationMessage {
+  id: string
+  products?: Product[]
+  quick_notes?: string
+  clarifying_questions?: string[]
+  isTyping?: boolean
 }
 
-const DEFAULT_QUERY = 'A smart phone with modern features'
 
-const rawTaskSteps = [
-  { id: 1, label: 'Analyzing your request', completed: true },
-  { id: 2, label: 'Searching online for products', completed: true },
-  { id: 3, label: 'Ranking and selecting the best options', completed: false },
-  { id: 4, label: 'Finalizing results', completed: false },
-]
-
-const getInitialTaskSteps = (): TaskStep[] =>
-  rawTaskSteps.map((task, index) => ({
-    id: task.id,
-    label: task.label,
-    status: index === 0 ? 'loading' : 'pending',
-  }))
 
 function App() {
-  const [view, setView] = useState<View>('search')
-  const [query, setQuery] = useState('')
-  const [location, setLocation] = useState('india')
-  const [submittedQuery, setSubmittedQuery] = useState(DEFAULT_QUERY)
-  const [taskSteps, setTaskSteps] = useState<TaskStep[]>(() => getInitialTaskSteps())
-  const [showDetailedLog, setShowDetailedLog] = useState(false)
-  const [products, setProducts] = useState<Product[]>([])
-  const [analysis, setAnalysis] = useState<string>('')
-  const [error, setError] = useState<string | null>(null)
+  const [messages, setMessages] = useState<LocalMessage[]>([])
+  const [inputValue, setInputValue] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
 
-  const disableShop = useMemo(() => query.trim().length === 0, [query])
+  const handleSendMessage = async (text: string) => {
+    if (!text.trim()) return
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (disableShop) {
-      return
+    const userMsg: LocalMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: text,
     }
 
-    const trimmed = query.trim()
-    setSubmittedQuery(trimmed || DEFAULT_QUERY)
-    setTaskSteps(getInitialTaskSteps())
-    setShowDetailedLog(false)
-    setProducts([])
-    setError(null)
-    setView('task')
+    setMessages(prev => [...prev, userMsg])
+    setInputValue('')
+    setIsLoading(true)
+
+    const typingMsgId = 'typing-' + Date.now()
+    setMessages(prev => [...prev, {
+      id: typingMsgId,
+      role: 'assistant',
+      content: 'Thinking...',
+      isTyping: true
+    }])
 
     try {
-      // Step 1: Analyzing
-      setTaskSteps(prev => prev.map(s => s.id === 1 ? { ...s, status: 'loading' } : s))
+      const history = messages
+        .filter(m => !m.isTyping)
+        .map(m => ({ role: m.role, content: m.content }))
 
-      // Start the API call
-      const data = await searchProducts(trimmed || DEFAULT_QUERY, location)
+      const response = await searchProducts(text, history)
 
-      // Step 1 Done, Step 2 Loading
-      setTaskSteps(prev => prev.map(s => {
-        if (s.id === 1) return { ...s, status: 'done' }
-        if (s.id === 2) return { ...s, status: 'loading' } // Pretend searching is happening now (though API returned)
-        return s
-      }))
+      setMessages(prev => prev.filter(m => m.id !== typingMsgId))
 
-      // Simulate some delay for visual effect of "steps" since API returns everything at once
-      // In a real streaming setup, we'd update as data comes in.
-      // Here we just fake the progress for the user experience.
+      const agentMsg: LocalMessage = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: response.reply_message || response.analysis,
+        products: response.products,
+        quick_notes: response.quick_notes,
+        clarifying_questions: response.clarifying_questions,
+      }
 
-      await new Promise(resolve => setTimeout(resolve, 800))
-      setTaskSteps(prev => prev.map(s => {
-        if (s.id === 2) return { ...s, status: 'done' }
-        if (s.id === 3) return { ...s, status: 'loading' }
-        return s
-      }))
+      setMessages(prev => [...prev, agentMsg])
 
-      await new Promise(resolve => setTimeout(resolve, 800))
-      setTaskSteps(prev => prev.map(s => {
-        if (s.id === 3) return { ...s, status: 'done' }
-        if (s.id === 4) return { ...s, status: 'loading' }
-        return s
-      }))
-
-      setProducts(data.products)
-      setAnalysis(data.analysis)
-
-      await new Promise(resolve => setTimeout(resolve, 500))
-      setTaskSteps(prev => prev.map(s => s.id === 4 ? { ...s, status: 'done' } : s))
-
-      // Go to results
-      setTimeout(() => {
-        setView('results')
-      }, 500)
-
-    } catch (err) {
-      console.error(err)
-      setError(err instanceof Error ? err.message : 'An unknown error occurred')
-      setTaskSteps(prev => prev.map(s => s.status === 'loading' ? { ...s, status: 'error' } : s))
+    } catch (error) {
+      console.error(error)
+      setMessages(prev => prev.filter(m => m.id !== typingMsgId))
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+      }])
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const handleBackToSearch = useCallback(() => {
-    setTaskSteps(getInitialTaskSteps())
-    setShowDetailedLog(false)
-    setView('search')
-  }, [])
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage(inputValue)
+    }
+  }
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div className="brand">Shopper</div>
-        <nav className="header-nav" aria-label="Primary navigation">
-          <a href="#" onClick={(event) => event.preventDefault()}>
-            My Shopping Tasks
-          </a>
-          <a href="#" onClick={(event) => event.preventDefault()}>
-            Preferences
-          </a>
-        </nav>
-        <div className="user-info">
-          <span>Welcome Admin</span>
-          <span className="user-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path fill="none" d="M0 0h24v24H0z" />
-              <path d="M12 14v8H4a8 8 0 0 1 8-8zm0-1c-3.315 0-6-2.685-6-6s2.685-6 6-6 6 2.685 6 6-2.685 6-6 6zm9 4h1v5h-8v-5h1v-1a3 3 0 0 1 6 0v1zm-2 0v-1a1 1 0 0 0-2 0v1h2z" />
-            </svg>
-          </span>
-        </div>
-      </header>
+    <div className="app-wrapper">
 
-      <main className="app-main">
-        {view === 'search' && (
-          <SearchPage
-            query={query}
-            location={location}
-            disabled={disableShop}
-            onChange={(value) => setQuery(value)}
-            onLocationChange={(value) => setLocation(value)}
-            onSubmit={(event) => {
-              handleSubmit(event)
-            }}
-          />
-        )}
+      {/* Admin Icon - Top Right */}
+      <div className="admin-section">
+        <div className="admin-avatar">A</div>
+        <span className="admin-name">Admin</span>
+      </div>
 
-        {view === 'task' && (
-          <>
-            {error && (
-              <div className="error-banner" style={{ color: 'red', padding: '1rem', textAlign: 'center' }}>
-                Error: {error}
-              </div>
-            )}
-            <TasksPage
-              queryText={submittedQuery}
-              steps={taskSteps}
-              onBack={handleBackToSearch}
-              onShowResults={() => setView('results')}
-              showDetailedLog={showDetailedLog}
-              onToggleDetailedLog={() => setShowDetailedLog((prev) => !prev)}
-            />
-          </>
-        )}
+      {/* Main Content */}
+      <div className="main-wrapper">
+        {messages.length === 0 ? (
+          // Initial State - Large Heading and Search Bar
+          <div className="initial-state">
+            <h1 className="app-title">Shopper</h1>
+            <p className="app-subtitle">Your AI Shopping Assistant</p>
 
-        {view === 'results' && (
-          <ResultsPage
-            query={submittedQuery}
-            products={products}
-            analysis={analysis}
-            onBack={() => {
-              setShowDetailedLog(false)
-              setView('task')
-            }}
-          />
+            <div className="search-container">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="What are you looking for today?"
+                disabled={isLoading}
+                className="search-input"
+              />
+              <button
+                onClick={() => handleSendMessage(inputValue)}
+                disabled={isLoading || !inputValue.trim()}
+                className="search-button"
+              >
+                <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" height="20" width="20">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+          </div>
+        ) : (
+          // Chat State
+          <div className="chat-state">
+            <div className="messages-area">
+              {messages.map((msg) => (
+                <div key={msg.id} className={`message ${msg.role}`}>
+                  {msg.isTyping ? (
+                    <span className="typing">Thinking...</span>
+                  ) : (
+                    <>
+                      <div className="message-text markdown-content">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
+
+                      {msg.clarifying_questions && msg.clarifying_questions.length > 0 && (
+                        <div className="questions">
+                          {msg.clarifying_questions.map((q, idx) => (
+                            <button
+                              key={idx}
+                              className="question-chip"
+                              onClick={() => handleSendMessage(q)}
+                              disabled={isLoading}
+                            >
+                              {q}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {msg.products && msg.products.length > 0 && (
+                        <div className="products-grid">
+                          {msg.products.map((product, idx) => (
+                            <a
+                              key={idx}
+                              href={product.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="product-card"
+                            >
+                              <div className="product-image">
+                                {product.image_url ? (
+                                  <img src={product.image_url} alt={product.title} />
+                                ) : (
+                                  <div className="no-image">No Image</div>
+                                )}
+                              </div>
+                              <div className="product-info">
+                                <div className="product-title">{product.title}</div>
+                                <div className="product-price">
+                                  {product.currency === 'INR' ? '₹' : (product.currency === 'USD' ? '$' : (product.currency || '$'))} {product.price?.toLocaleString()}
+                                </div>
+                                <div className="product-source">{product.source}</div>
+                              </div>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+
+                      {msg.quick_notes && (
+                        <div className="quick-notes">
+                          <div className="quick-notes-header">
+                            <span>📝</span> Quick Notes
+                          </div>
+                          <ul className="quick-notes-list">
+                            {msg.quick_notes.split('\n').filter(line => line.trim()).map((line, idx) => {
+                              const cleanLine = line.replace(/^[-*•]\s*/, '');
+                              const parts = cleanLine.split(/(\*\*.*?\*\*)/g);
+                              return (
+                                <li key={idx} className="quick-notes-item">
+                                  {parts.map((part, i) => {
+                                    if (part.startsWith('**') && part.endsWith('**')) {
+                                      return <strong key={i}>{part.slice(2, -2)}</strong>;
+                                    }
+                                    return <span key={i}>{part}</span>;
+                                  })}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="input-area">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Send a message..."
+                disabled={isLoading}
+              />
+              <button
+                onClick={() => handleSendMessage(inputValue)}
+                disabled={isLoading || !inputValue.trim()}
+              >
+                <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" height="16" width="16">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+          </div>
         )}
-      </main>
+      </div>
     </div>
   )
 }

@@ -28,20 +28,20 @@ async def flipkart_search_products_async(
         
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(2000)  # Wait for dynamic content
+            await page.wait_for_timeout(3000)  # Wait for dynamic content (increased to 3s)
             
-            # Try multiple selectors - Flipkart uses different ones for different categories
+            # Updated selectors for 2024 Flipkart structure
             cards = []
-            card_selectors = ["a.CGtC98", "div._75nlfW", "div._1sdMkc", "a.rPDeLR"]
+            card_selectors = ["a.wjcEIp", "a.k7wcnx", "div.yKfJKb", "div.tUxRFH", "a.CGtC98"]
             
             for selector in card_selectors:
                 cards = await page.query_selector_all(selector)
                 if len(cards) > 0:
-                    print(f"Found {len(cards)} cards using selector: {selector}")
+                    print(f"✓ Found {len(cards)} Flipkart cards using selector: {selector}")
                     break
             
             if len(cards) == 0:
-                print("No product cards found with any selector")
+                print("❌ No Flipkart product cards found with any selector")
                 await browser.close()
                 return []
                 
@@ -74,35 +74,65 @@ async def flipkart_search_products_async(
                 card_text = await card.inner_text()
                 lines = [l.strip() for l in card_text.split('\n') if l.strip()]
                 
-                # Title - first substantial line that's not a price
+                # Title - try specific selector first, then fallback to text extraction
                 title = None
-                for line in lines:
-                    if line and not line.startswith('₹') and len(line) > 10 and not line.replace('.', '').replace('(', '').replace(')', '').isdigit():
-                        title = line
-                        break
+                title_el = await card.query_selector("div.KzDlHZ, div.IRpwTa, div.s1Q9rs")
+                if title_el:
+                    title = await title_el.inner_text()
+                    title = title.strip() if title else None
+                
+                # Fallback: first substantial line that's not a price
+                if not title:
+                    for line in lines:
+                        if line and not line.startswith('₹') and len(line) > 10 and not line.replace('.', '').replace('(', '').replace(')', '').isdigit():
+                            title = line
+                            break
                 
                 if not title or len(title.strip()) < 5:
                     continue
 
-                # Price - extract using regex from card text
+                # Price - try specific selector first, then regex
                 price = None
                 import re
-                price_match = re.search(r'₹\s*([\d,]+)', card_text)
-                if price_match:
-                    price_text = price_match.group(1).replace(",", "")
-                    try:
-                        price = float(price_text)
-                    except ValueError:
-                        pass
+                price_el = await card.query_selector("div.Nx9bqj, div._30jeq3")
+                if price_el:
+                    price_text = await price_el.inner_text()
+                    price_match = re.search(r'₹\s*([\d,]+)', price_text)
+                    if price_match:
+                        try:
+                            price = float(price_match.group(1).replace(",", ""))
+                        except ValueError:
+                            pass
+                
+                # Fallback: extract from card text
+                if not price:
+                    price_match = re.search(r'₹\s*([\d,]+)', card_text)
+                    if price_match:
+                        try:
+                            price = float(price_match.group(1).replace(",", ""))
+                        except ValueError:
+                            pass
 
-                # Rating - look for pattern like "4.5(123)" or "4.5 (123)"
+                # Rating - try specific selector first, then regex
                 rating = None
-                rating_match = re.search(r'(\d+\.?\d*)\s*\(\d+\)', card_text)
-                if rating_match:
-                    try:
-                        rating = float(rating_match.group(1))
-                    except ValueError:
-                        pass
+                rating_el = await card.query_selector("div.XQDdHH, div._3LWZlK")
+                if rating_el:
+                    rating_text = await rating_el.inner_text()
+                    rating_match = re.search(r'(\d+\.?\d*)', rating_text)
+                    if rating_match:
+                        try:
+                            rating = float(rating_match.group(1))
+                        except ValueError:
+                            pass
+                
+                # Fallback: look for pattern like "4.5(123)" or "4.5 (123)"
+                if not rating:
+                    rating_match = re.search(r'(\d+\.?\d*)\s*\(\d+\)', card_text)
+                    if rating_match:
+                        try:
+                            rating = float(rating_match.group(1))
+                        except ValueError:
+                            pass
 
                 product = Product(
                     marketplace="flipkart",
