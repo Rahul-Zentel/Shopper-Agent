@@ -13,6 +13,11 @@ export interface SearchResponse {
   quick_notes?: string
 }
 
+export interface LogEntry {
+  timestamp: string
+  message: string
+}
+
 export type View = 'search' | 'task' | 'results'
 export type TaskStatus = 'done' | 'loading' | 'pending' | 'error'
 export type SearchMode = 'scraper' | 'deep-agent'

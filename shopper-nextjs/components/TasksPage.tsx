@@ -1,4 +1,5 @@
-import { TaskStep } from '@/lib/types'
+import { TaskStep, LogEntry } from '@/lib/types'
+import { useEffect, useRef } from 'react'
 
 interface TasksPageProps {
   queryText: string
@@ -7,6 +8,8 @@ interface TasksPageProps {
   onShowResults: () => void
   showDetailedLog: boolean
   onToggleDetailedLog: () => void
+  logs: LogEntry[]
+  logsLoading: boolean
 }
 
 export function TasksPage({
@@ -16,7 +19,16 @@ export function TasksPage({
   onShowResults,
   showDetailedLog,
   onToggleDetailedLog,
+  logs,
+  logsLoading,
 }: TasksPageProps) {
+  const logContainerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+    }
+  }, [logs])
   return (
     <section className="tasks-panel">
       <button type="button" className="back-link" onClick={onBack}>
@@ -48,10 +60,19 @@ export function TasksPage({
       </div>
       {showDetailedLog && (
         <div className="detailed-log" role="region" aria-live="polite">
-          <p className="log-title">Detailed log</p>
-          <div className="log-row">Analyzing preference data</div>
-          <div className="log-row">Searching across multiple marketplaces</div>
-          <div className="log-row">Ranking and filtering results</div>
+          <p className="log-title">Detailed log {logsLoading && '(updating...)'}</p>
+          <div ref={logContainerRef} style={{ maxHeight: '400px', overflowY: 'auto' }}>
+            {logs.length === 0 ? (
+              <div className="log-row">No logs available yet...</div>
+            ) : (
+              logs.map((log, index) => (
+                <div key={index} className="log-row">
+                  <span style={{ color: '#888', marginRight: '8px' }}>{log.timestamp}</span>
+                  <span>{log.message}</span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
     </section>

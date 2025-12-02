@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -12,17 +12,19 @@ try:
     from .ranking import rank_products
     from .deep_agent import DeepShoppingAgent
     from .utils.region import get_region_from_ip
+    from .logging_system import setup_logging, get_recent_logs
+    from .auth import get_current_user, optional_verify_token
 except ImportError:
-    # Fallback for when running directly from shopapp directory
     import sys
     import os
-    # Add parent dir to path to allow absolute import of shopapp
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from shopapp.agent import analyze_prompt, generate_quick_notes
     from shopapp.scraper import flipkart_search_products_async
     from shopapp.ranking import rank_products
     from shopapp.deep_agent import DeepShoppingAgent
     from shopapp.utils.region import get_region_from_ip
+    from shopapp.logging_system import setup_logging, get_recent_logs
+    from shopapp.auth import get_current_user, optional_verify_token
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -32,10 +34,14 @@ load_dotenv()
 
 app = FastAPI(title="Shopper Agent API")
 
-# Configure CORS
+@app.on_event("startup")
+async def startup_event():
+    setup_logging()
+    print("Shopper Agent API started - logging system initialized")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For development, allow all. In production, specify the frontend URL.
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -380,3 +386,8 @@ async def search_deep_agent(request: SearchRequest, http_request: Request):
 @app.get("/")
 async def root():
     return {"message": "Shopper Agent API is running"}
+
+@app.get("/logs")
+async def get_logs(limit: int = 100):
+    logs = get_recent_logs(limit)
+    return {"logs": logs}

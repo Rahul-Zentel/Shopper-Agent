@@ -7,3 +7,6 @@ langchain-openai
 fastapi
 uvicorn
 tavily-python
+python-jose[cryptography]
+jwcrypto
+requests
