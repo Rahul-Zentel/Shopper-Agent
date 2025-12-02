@@ -100,20 +100,43 @@ class MultiAgentShoppingFramework:
 
         print(f"Reputation analysis: {len(reputation_data)} products scored")
         print(f"Deal detection: {len(deal_data)} deals analyzed")
+        print(f"DEBUG: reputation_data type: {type(reputation_data)}, keys: {list(reputation_data.keys()) if isinstance(reputation_data, dict) else 'N/A'}")
+        print(f"DEBUG: deal_data type: {type(deal_data)}, keys: {list(deal_data.keys()) if isinstance(deal_data, dict) else 'N/A'}")
 
         # Filter out high-risk products
         safe_indices = self.reputation_agent.filter_risky_products(
             all_products, reputation_data, max_risk_level="medium"
         )
         print(f"Filtered to {len(safe_indices)} safe products")
+        print(f"DEBUG: safe_indices: {safe_indices}")
+        print(f"DEBUG: all_products type: {type(all_products)}, length: {len(all_products)}")
 
-        # Filter products and their metadata
-        safe_products = [all_products[i] for i in safe_indices]
-        safe_reputation = {new_idx: reputation_data[old_idx]
-                          for new_idx, old_idx in enumerate(safe_indices)}
-        safe_deals = {new_idx: deal_data[old_idx]
-                     for new_idx, old_idx in enumerate(safe_indices)}
+        # Filter products and their metadata with robust error handling
+        safe_products = []
+        for i in safe_indices:
+            try:
+                if isinstance(all_products, list):
+                    if 0 <= i < len(all_products):
+                        safe_products.append(all_products[i])
+                    else:
+                        print(f"WARNING: Index {i} out of range for all_products (length: {len(all_products)})")
+                elif isinstance(all_products, dict):
+                    if i in all_products:
+                        safe_products.append(all_products[i])
+                    else:
+                        print(f"WARNING: Key {i} not found in all_products dict")
+                else:
+                    print(f"ERROR: all_products is neither list nor dict, it's {type(all_products)}")
+            except Exception as e:
+                print(f"ERROR: Failed to access all_products[{i}]: {e}")
 
+        safe_reputation = {new_idx: reputation_data.get(old_idx, {}) if isinstance(reputation_data, dict)
+                          else (reputation_data[old_idx] if old_idx < len(reputation_data) else {})
+                          for new_idx, old_idx in enumerate(safe_indices) if old_idx in safe_indices}
+        safe_deals = {new_idx: deal_data.get(old_idx, {}) if isinstance(deal_data, dict)
+                     else (deal_data[old_idx] if old_idx < len(deal_data) else {})
+                     for new_idx, old_idx in enumerate(safe_indices) if old_idx in safe_indices}
+                     
         # PHASE 4: Intelligent Ranking
         print("\n[Phase 4] Intelligent ranking...")
         ranked_products = self.ranking_agent.rank_products(

@@ -29,7 +29,7 @@ export function ResultsPage({ query, products, analysis, quickNotes, onBack }: R
         fontSize: '15px',
         lineHeight: '1.6'
       }}>
-        <strong style={{ color: '#ffffff' }}>🤖 Agent Analysis:</strong> {analysis}
+        <strong style={{ color: '#ffffff' }}>Agent Analysis:</strong> {analysis}
       </div>
 
       <div className="card-grid">
@@ -98,7 +98,7 @@ export function ResultsPage({ query, products, analysis, quickNotes, onBack }: R
             alignItems: 'center',
             gap: '8px'
           }}>
-            <span>📝</span> Quick Notes
+            <span></span> Quick Notes
           </h2>
           <div style={{
             color: 'rgba(255,255,255,0.8)',
