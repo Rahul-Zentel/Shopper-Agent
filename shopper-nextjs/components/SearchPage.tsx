@@ -15,51 +15,25 @@ interface SearchPageProps {
 export function SearchPage({
   query,
   location,
-  mode,
   disabled,
   onChange,
   onLocationChange,
-  onModeChange,
   onSubmit
 }: SearchPageProps) {
   return (
     <section className="search-panel">
+      <div className="location-selector-corner">
+        <select
+          value={location}
+          onChange={(e) => onLocationChange(e.target.value)}
+          className="location-select"
+        >
+          <option value="usa">USA</option>
+          <option value="india">India</option>
+        </select>
+      </div>
       <h1>What do you want to shop today?</h1>
       <form onSubmit={onSubmit} className="search-form">
-        <div className="mode-toggle-container">
-          <button
-            type="button"
-            className={`mode-toggle-btn ${mode === 'scraper' ? 'active' : ''}`}
-            onClick={() => onModeChange('scraper')}
-          >
-            Scraper Mode
-          </button>
-          <button
-            type="button"
-            className={`mode-toggle-btn ${mode === 'deep-agent' ? 'active' : ''}`}
-            onClick={() => onModeChange('deep-agent')}
-          >
-            Deep Agent Mode
-          </button>
-        </div>
-
-        <div className="location-toggle-container">
-          <button
-            type="button"
-            className={`location-toggle-btn ${location === 'india' ? 'active' : ''}`}
-            onClick={() => onLocationChange('india')}
-          >
-            🇮🇳 India
-          </button>
-          <button
-            type="button"
-            className={`location-toggle-btn ${location === 'usa' ? 'active' : ''}`}
-            onClick={() => onLocationChange('usa')}
-          >
-            🇺🇸 USA
-          </button>
-        </div>
-
         <div className="search-input-wrapper">
           <input
             type="text"

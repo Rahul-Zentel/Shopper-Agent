@@ -29,8 +29,8 @@ export default function Home() {
   const { user, error: authError, isLoading } = useUser()
   const [view, setView] = useState<View>('search')
   const [query, setQuery] = useState('')
-  const [location, setLocation] = useState('india')
-  const [mode, setMode] = useState<SearchMode>('scraper')
+  const [location, setLocation] = useState('usa')
+  const [mode] = useState<SearchMode>('deep-agent')
   const [submittedQuery, setSubmittedQuery] = useState(DEFAULT_QUERY)
   const [taskSteps, setTaskSteps] = useState<TaskStep[]>(() => getInitialTaskSteps())
   const [showDetailedLog, setShowDetailedLog] = useState(false)
@@ -40,6 +40,23 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+
+  useEffect(() => {
+    const detectLocation = async () => {
+      try {
+        const response = await fetch('https://ipapi.co/json/')
+        const data = await response.json()
+        if (data.country_code === 'IN') {
+          setLocation('india')
+        } else {
+          setLocation('usa')
+        }
+      } catch (err) {
+        console.log('Location detection failed, using default (USA)')
+      }
+    }
+    detectLocation()
+  }, [])
 
   const disableShop = useMemo(() => query.trim().length === 0, [query])
 
@@ -190,7 +207,7 @@ export default function Home() {
             disabled={disableShop}
             onChange={(value) => setQuery(value)}
             onLocationChange={(value) => setLocation(value)}
-            onModeChange={(value) => setMode(value)}
+            onModeChange={() => {}}
             onSubmit={(event) => {
               handleSubmit(event)
             }}
