@@ -10,3 +10,4 @@ tavily-python
 python-jose[cryptography]
 jwcrypto
 requests
+beautifulsoup4

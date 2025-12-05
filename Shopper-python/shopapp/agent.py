@@ -40,7 +40,9 @@ def generate_quick_notes(products: list) -> str:
         top_products = products[:5]
         product_summaries = []
         for p in top_products:
-            price_str = f"{p.currency} {p.price}" if p.price else "Price N/A"
+            # Defensive check for currency attribute
+            currency = getattr(p, 'currency', 'USD') if hasattr(p, 'currency') else 'USD'
+            price_str = f"{currency} {p.price}" if p.price else "Price N/A"
             product_summaries.append(f"- {p.title} ({price_str})")
         
         products_text = "\n".join(product_summaries)

@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import type { FormEvent } from 'react'
-import { useUser } from '@auth0/nextjs-auth0/client'
 import { SearchPage } from '@/components/SearchPage'
 import { TasksPage } from '@/components/TasksPage'
 import { ResultsPage } from '@/components/ResultsPage'
@@ -26,7 +25,6 @@ const getInitialTaskSteps = (): TaskStep[] =>
   }))
 
 export default function Home() {
-  const { user, error: authError, isLoading } = useUser()
   const [view, setView] = useState<View>('search')
   const [query, setQuery] = useState('')
   const [location, setLocation] = useState('india')
@@ -77,26 +75,6 @@ export default function Home() {
     setShowDetailedLog(false)
     setView('search')
   }, [])
-
-  if (isLoading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <p>Loading...</p>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', gap: '1rem' }}>
-        <h1>Welcome to Shopper Agent</h1>
-        <p>Please log in to continue</p>
-        <a href="/auth/login" style={{ padding: '0.5rem 1rem', background: '#0070f3', color: 'white', textDecoration: 'none', borderRadius: '4px' }}>
-          Log in
-        </a>
-      </div>
-    )
-  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -168,16 +146,7 @@ export default function Home() {
           </a>
         </nav>
         <div className="user-info">
-          <span>Welcome {user?.name || user?.email || 'User'}</span>
-          <span className="user-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path fill="none" d="M0 0h24v24H0z" />
-              <path d="M12 14v8H4a8 8 0 0 1 8-8zm0-1c-3.315 0-6-2.685-6-6s2.685-6 6-6 6 2.685 6 6-2.685 6-6 6zm9 4h1v5h-8v-5h1v-1a3 3 0 0 1 6 0v1zm-2 0v-1a1 1 0 0 0-2 0v1h2z" />
-            </svg>
-          </span>
-          <a href="/auth/logout" style={{ color: 'white', textDecoration: 'underline', marginLeft: '1rem' }}>
-            Logout
-          </a>
+          <span>Welcome to Shopper</span>
         </div>
       </header>
 

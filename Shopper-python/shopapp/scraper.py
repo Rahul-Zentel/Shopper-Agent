@@ -30,9 +30,16 @@ async def flipkart_search_products_async(
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(2000)  # Wait for dynamic content
             
-            # Try multiple selectors - Flipkart uses different ones for different categories
+            # Try multiple selectors - Flipkart uses different ones for different layouts
             cards = []
-            card_selectors = ["a.CGtC98", "div._75nlfW", "div._1sdMkc", "a.rPDeLR"]
+            card_selectors = [
+                "a.CGtC98",      # Old selector (keeping for compatibility)
+                "a.k7wcnx",      # New primary selector (2024)
+                "div._13oc-S",   # Grid layout selector (2024)
+                "div._75nlfW",   # Old selector
+                "div._1sdMkc",   # Old selector
+                "a.rPDeLR"       # Old selector
+            ]
             
             for selector in card_selectors:
                 cards = await page.query_selector_all(selector)
@@ -104,6 +111,22 @@ async def flipkart_search_products_async(
                     except ValueError:
                         pass
 
+                # Image URL - try multiple selectors for different layouts
+                thumbnail_url = None
+                try:
+                    # Try new selectors first
+                    img_selectors = ["img._396cs4", "img.CXW8mj", "img._2r_T1I", "img"]
+                    for img_sel in img_selectors:
+                        img_el = await card.query_selector(img_sel)
+                        if img_el:
+                            thumbnail_url = await img_el.get_attribute("src")
+                            if not thumbnail_url:
+                                thumbnail_url = await img_el.get_attribute("data-src")
+                            if thumbnail_url:
+                                break
+                except Exception:
+                    pass
+
                 product = Product(
                     marketplace="flipkart",
                     title=title.strip(),
@@ -113,7 +136,7 @@ async def flipkart_search_products_async(
                     rating=rating,
                     rating_count=None,
                     is_sponsored=False,
-                    thumbnail_url=None,
+                    thumbnail_url=thumbnail_url,
                     primary_features=[],
                 )
                 products.append(product)

@@ -43,20 +43,13 @@ export function SearchPage({
           </button>
         </div>
 
-        <div className="location-toggle-container">
+        <div className="location-selector-container">
           <button
             type="button"
-            className={`location-toggle-btn ${location === 'india' ? 'active' : ''}`}
-            onClick={() => onLocationChange('india')}
+            className={`usa-toggle-btn ${location === 'usa' ? 'active' : ''}`}
+            onClick={() => onLocationChange(location === 'usa' ? 'india' : 'usa')}
           >
-            🇮🇳 India
-          </button>
-          <button
-            type="button"
-            className={`location-toggle-btn ${location === 'usa' ? 'active' : ''}`}
-            onClick={() => onLocationChange('usa')}
-          >
-            🇺🇸 USA
+            {location === 'usa' ? '← Back to India' : 'Shop in USA 🇺🇸'}
           </button>
         </div>
 

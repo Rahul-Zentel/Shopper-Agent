@@ -1,3 +1,2 @@
-import { Auth0Client } from '@auth0/nextjs-auth0/server'
-
-export const auth0 = new Auth0Client()
+// Auth0 client removed – this file is intentionally empty to avoid Auth0 usage.
+export {}

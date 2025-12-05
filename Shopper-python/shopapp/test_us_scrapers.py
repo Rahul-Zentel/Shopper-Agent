@@ -1,4 +1,9 @@
 import asyncio
+from dotenv import load_dotenv
+
+env_path = r"c:\Users\Admin\Desktop\Shopper-Agent\.env"
+load_dotenv(env_path)
+
 from .scraper_etsy import etsy_search_products_async
 from .scraper_bestbuy import bestbuy_search_products_async
 from .scraper_walmart import walmart_search_products_async
