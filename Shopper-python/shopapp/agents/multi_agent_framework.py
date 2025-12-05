@@ -203,13 +203,15 @@ class MultiAgentShoppingFramework:
                     asyncio.set_event_loop(loop)
                     try:
                         result = loop.run_until_complete(
-                            scraper_func(search_query, max_results=3, headless=True)
+                            scraper_func(search_query, max_results=10, headless=True)
                         )
                         for prod in result:
                             prod.marketplace = source_name
                         return result
                     except Exception as e:
                         print(f"Scraper error {source_name}: {e}")
+                        import traceback
+                        traceback.print_exc()
                         return []
                     finally:
                         loop.close()

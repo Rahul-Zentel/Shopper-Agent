@@ -163,9 +163,8 @@ async def search_products(request: SearchRequest, http_request: Request):
                 asyncio.set_event_loop(loop)
                 try:
                     result = loop.run_until_complete(
-                        scraper_func(prefs.query, max_results=3, headless=True)
+                        scraper_func(prefs.query, max_results=10, headless=True)
                     )
-                    # Add source to each product
                     for prod in result:
                         prod.marketplace = source_name
                     return result

@@ -1,5 +1,6 @@
 import asyncio
 import urllib.parse
+import re
 from typing import List
 from playwright.async_api import async_playwright
 from .models import Product
@@ -9,122 +10,154 @@ async def flipkart_search_products_async(
     max_results: int = 10,
     headless: bool = True,
 ) -> List[Product]:
-    """
-    Async Flipkart search -> list[Product].
-    Works for ALL product categories (electronics, cosmetics, clothes, etc.)
-    """
     products: List[Product] = []
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=headless)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        browser = await p.chromium.launch(
+            headless=headless,
+            args=['--disable-blink-features=AutomationControlled']
         )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+        )
+
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        """)
+
         page = await context.new_page()
 
         encoded_query = urllib.parse.quote_plus(query)
         url = f"https://www.flipkart.com/search?q={encoded_query}"
-        print(f"Navigating to: {url}")
-        
+
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(2000)  # Wait for dynamic content
-            
-            # Try multiple selectors - Flipkart uses different ones for different categories
-            cards = []
-            card_selectors = ["a.CGtC98", "div._75nlfW", "div._1sdMkc", "a.rPDeLR"]
-            
-            for selector in card_selectors:
-                cards = await page.query_selector_all(selector)
-                if len(cards) > 0:
-                    print(f"Found {len(cards)} cards using selector: {selector}")
+            await page.goto(url, wait_until="load", timeout=60000)
+            await page.wait_for_timeout(6000)
+
+            cards = await page.query_selector_all('div[data-id]')
+
+            for idx, card in enumerate(cards):
+                if len(products) >= max_results:
                     break
-            
-            if len(cards) == 0:
-                print("No product cards found with any selector")
-                await browser.close()
-                return []
-                
-        except Exception as e:
-            print(f"Error loading page: {e}")
+
+                try:
+                    all_links = await card.query_selector_all('a')
+
+                    product_link = None
+                    raw_url = None
+                    title = None
+
+                    for link in all_links:
+                        href = await link.get_attribute('href')
+                        if href and '/p/' in href and 'itm' in href:
+                            raw_url = href
+                            product_link = link
+
+                            link_text = await link.inner_text()
+                            if link_text:
+                                lines = [l.strip() for l in link_text.split('\n') if l.strip()]
+                                for line in lines:
+                                    if (len(line) > 15 and
+                                        not line.startswith('₹') and
+                                        not line.startswith('Buy ') and
+                                        not line.lower().startswith('save ') and
+                                        not line.lower().startswith('off ') and
+                                        'items' not in line.lower() and
+                                        'extra' not in line.lower()):
+                                        title = line
+                                        break
+
+                            if title and len(title) > 15:
+                                break
+
+                    if not product_link or not raw_url:
+                        continue
+
+                    if not title:
+                        card_text = await card.inner_text()
+                        lines = [l.strip() for l in card_text.split('\n') if l.strip()]
+
+                        for line in lines:
+                            if (len(line) > 15 and
+                                not line.startswith('₹') and
+                                not line.startswith('Buy ') and
+                                not line.lower().startswith('save ') and
+                                not line.lower().startswith('off ') and
+                                not line.lower().startswith('get ') and
+                                'items' not in line.lower() and
+                                'extra' not in line.lower() and
+                                'delivery' not in line.lower() and
+                                'out of 5' not in line.lower()):
+                                title = line
+                                break
+
+                    if not title or len(title) < 10:
+                        continue
+
+                    if raw_url.startswith('/'):
+                        full_url = f"https://www.flipkart.com{raw_url}"
+                    elif raw_url.startswith('http'):
+                        full_url = raw_url
+                    else:
+                        full_url = f"https://www.flipkart.com/{raw_url}"
+
+                    parsed = urllib.parse.urlparse(full_url)
+                    path = parsed.path
+
+                    query_params = urllib.parse.parse_qs(parsed.query)
+                    pid = query_params.get('pid', [None])[0]
+
+                    if pid:
+                        clean_url = f"https://www.flipkart.com{path}?pid={pid}"
+                    else:
+                        clean_url = f"https://www.flipkart.com{path}"
+
+                    card_html = await card.inner_html()
+
+                    price = None
+                    price_matches = re.findall(r'₹([\d,]+)', card_html)
+                    if price_matches:
+                        try:
+                            price = float(price_matches[0].replace(',', ''))
+                        except:
+                            pass
+
+                    rating = None
+                    rating_match = re.search(r'(\d\.\d)\s*★', card_html)
+                    if not rating_match:
+                        rating_match = re.search(r'(\d\.\d)\s*<', card_html)
+                    if rating_match:
+                        try:
+                            rating = float(rating_match.group(1))
+                        except:
+                            pass
+
+                    thumbnail_url = None
+                    img = await card.query_selector('img')
+                    if img:
+                        thumbnail_url = await img.get_attribute('src')
+
+                    product = Product(
+                        marketplace="Flipkart",
+                        title=title,
+                        url=clean_url,
+                        price=price,
+                        currency="INR",
+                        rating=rating,
+                        rating_count=None,
+                        is_sponsored=False,
+                        thumbnail_url=thumbnail_url,
+                        primary_features=[],
+                    )
+                    products.append(product)
+
+                except Exception:
+                    continue
+
+        except Exception:
+            pass
+        finally:
             await browser.close()
-            return []
-
-        for card in cards:
-            if len(products) >= max_results:
-                break
-
-            try:
-                # Get link - for div cards, find 'a' inside; for 'a' cards, use the card itself
-                link_el = None
-                if await card.evaluate("el => el.tagName") == "A":
-                    link_el = card
-                else:
-                    link_el = await card.query_selector("a")
-                
-                if not link_el:
-                    continue
-                
-                rel_link = await link_el.get_attribute("href")
-                prod_url = "https://www.flipkart.com" + rel_link if rel_link and rel_link.startswith("/") else rel_link
-                if not prod_url or prod_url == "https://www.flipkart.com":
-                    continue
-
-                # Get all card text for extraction
-                card_text = await card.inner_text()
-                lines = [l.strip() for l in card_text.split('\n') if l.strip()]
-                
-                # Title - first substantial line that's not a price
-                title = None
-                for line in lines:
-                    if line and not line.startswith('₹') and len(line) > 10 and not line.replace('.', '').replace('(', '').replace(')', '').isdigit():
-                        title = line
-                        break
-                
-                if not title or len(title.strip()) < 5:
-                    continue
-
-                # Price - extract using regex from card text
-                price = None
-                import re
-                price_match = re.search(r'₹\s*([\d,]+)', card_text)
-                if price_match:
-                    price_text = price_match.group(1).replace(",", "")
-                    try:
-                        price = float(price_text)
-                    except ValueError:
-                        pass
-
-                # Rating - look for pattern like "4.5(123)" or "4.5 (123)"
-                rating = None
-                rating_match = re.search(r'(\d+\.?\d*)\s*\(\d+\)', card_text)
-                if rating_match:
-                    try:
-                        rating = float(rating_match.group(1))
-                    except ValueError:
-                        pass
-
-                product = Product(
-                    marketplace="flipkart",
-                    title=title.strip(),
-                    url=prod_url,
-                    price=price,
-                    currency="INR",
-                    rating=rating,
-                    rating_count=None,
-                    is_sponsored=False,
-                    thumbnail_url=None,
-                    primary_features=[],
-                )
-                products.append(product)
-                print(f"Added: {title[:40]}... | Rs.{price} | Rating:{rating}")
-
-            except Exception as e:
-                print(f"Error parsing card: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
-
-        await browser.close()
 
     return products

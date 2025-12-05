@@ -1,5 +1,7 @@
 import asyncio
 import urllib.parse
+import re
+import json
 from typing import List
 from playwright.async_api import async_playwright
 from .models import Product
@@ -9,127 +11,148 @@ async def walmart_search_products_async(
     max_results: int = 10,
     headless: bool = True,
 ) -> List[Product]:
-    """
-    Async Walmart.com search -> list[Product].
-    """
     products: List[Product] = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=headless)
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
         )
         page = await context.new_page()
 
         encoded_query = urllib.parse.quote_plus(query)
         url = f"https://www.walmart.com/search?q={encoded_query}"
-        print(f"Navigating to: {url}")
-        
+
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(3000)  # Wait for dynamic content
-            
-            # Walmart uses data-item-id for product cards
-            cards = await page.query_selector_all('[data-item-id]')
-            print(f"Found {len(cards)} Walmart product cards")
-            
-            if len(cards) == 0:
-                print("No product cards found")
-                await browser.close()
-                return []
-                
-        except Exception as e:
-            print(f"Error loading Walmart page: {e}")
-            await browser.close()
-            return []
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            await page.wait_for_timeout(3000)
 
-        for idx, card in enumerate(cards):
-            if len(products) >= max_results:
-                break
+            script_content = await page.content()
+            json_match = re.search(r'<script id="__NEXT_DATA__" type="application/json">({.+?})</script>', script_content)
 
-            try:
-                # Get card text for extraction
-                card_text = await card.inner_text()
-                
-                # Title - look for product link text
-                title = None
-                title_link = await card.query_selector('a[link-identifier*="product"]')
-                if not title_link:
-                    title_link = await card.query_selector('a span')
-                if title_link:
-                    title = await title_link.inner_text()
-                    title = title.strip() if title else None
-                
-                if not title or len(title) < 5:
-                    continue
-
-                # Link - get product URL
-                link_el = await card.query_selector('a[href*="/ip/"]')
-                if not link_el:
-                    link_el = await card.query_selector('a')
-                if not link_el:
-                    continue
-                    
-                rel_link = await link_el.get_attribute("href")
-                if not rel_link:
-                    continue
-                    
-                if rel_link.startswith("/"):
-                    prod_url = "https://www.walmart.com" + rel_link
-                else:
-                    prod_url = rel_link
-
-                # Price - extract using regex
-                price = None
-                import re
-                # Look for price pattern like $76.99 or $76,990.00
-                price_match = re.search(r'\$\s*([\d,]+\.?\d*)', card_text)
-                if price_match:
-                    price_text = price_match.group(1).replace(",", "")
-                    try:
-                        price = float(price_text)
-                    except ValueError:
-                        pass
-
-                # Rating - look for pattern like "4.5 out of 5"
-                rating = None
-                rating_match = re.search(r'(\d+\.?\d*)\s+out\s+of\s+5', card_text)
-                if rating_match:
-                    try:
-                        rating = float(rating_match.group(1))
-                    except ValueError:
-                        pass
-
-                # Image
-                thumbnail_url = None
+            if json_match:
                 try:
-                    img_el = await card.query_selector("img")
-                    if img_el:
-                        thumbnail_url = await img_el.get_attribute("src")
+                    data = json.loads(json_match.group(1))
+                    items = data.get('props', {}).get('pageProps', {}).get('initialData', {}).get('searchResult', {}).get('itemStacks', [{}])[0].get('items', [])
+
+                    for item in items[:max_results]:
+                        try:
+                            title = item.get('name', '')
+                            if not title or len(title) < 5:
+                                continue
+
+                            product_id = item.get('usItemId', '')
+                            if not product_id:
+                                continue
+
+                            prod_url = f"https://www.walmart.com/ip/{product_id}"
+
+                            price_info = item.get('priceInfo', {})
+                            current_price = price_info.get('currentPrice', {})
+                            price = current_price.get('price')
+
+                            rating_info = item.get('averageRating')
+                            rating = float(rating_info) if rating_info else None
+
+                            image_info = item.get('imageInfo', {})
+                            thumbnail_url = image_info.get('thumbnailUrl', '')
+
+                            product = Product(
+                                marketplace="Walmart",
+                                title=title,
+                                url=prod_url,
+                                price=price,
+                                currency="USD",
+                                rating=rating,
+                                rating_count=None,
+                                is_sponsored=False,
+                                thumbnail_url=thumbnail_url,
+                                primary_features=[],
+                            )
+                            products.append(product)
+                        except:
+                            continue
                 except:
                     pass
 
-                product = Product(
-                    marketplace="walmart",
-                    title=title,
-                    url=prod_url,
-                    price=price,
-                    currency="USD",
-                    rating=rating,
-                    rating_count=None,
-                    is_sponsored=False,
-                    thumbnail_url=thumbnail_url,
-                    primary_features=[],
-                )
-                products.append(product)
-                print(f"Added: {title[:50]}... | ${price} | ⭐{rating}")
+            if len(products) == 0:
+                cards = await page.query_selector_all('[data-item-id]')
 
-            except Exception as e:
-                print(f"Error parsing Walmart card {idx + 1}: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
+                for card in cards[:max_results]:
+                    try:
+                        title_el = await card.query_selector('span[data-automation-id="product-title"]')
+                        if not title_el:
+                            title_el = await card.query_selector('a span')
 
-        await browser.close()
+                        if not title_el:
+                            continue
+
+                        title = await title_el.inner_text()
+                        title = title.strip()
+                        if len(title) < 5:
+                            continue
+
+                        link_el = await card.query_selector('a[href*="/ip/"]')
+                        if not link_el:
+                            link_el = await card.query_selector('a')
+                        if not link_el:
+                            continue
+
+                        href = await link_el.get_attribute('href')
+                        if not href:
+                            continue
+
+                        if href.startswith('/'):
+                            prod_url = f"https://www.walmart.com{href}"
+                        else:
+                            prod_url = href
+
+                        parsed = urllib.parse.urlparse(prod_url)
+                        prod_url = f"https://www.walmart.com{parsed.path}"
+
+                        card_html = await card.inner_html()
+
+                        price = None
+                        price_match = re.search(r'\$\s*([\d,]+\.?\d*)', card_html)
+                        if price_match:
+                            try:
+                                price = float(price_match.group(1).replace(',', ''))
+                            except:
+                                pass
+
+                        rating = None
+                        rating_match = re.search(r'(\d\.\d)\s+out\s+of\s+5', card_html, re.IGNORECASE)
+                        if rating_match:
+                            try:
+                                rating = float(rating_match.group(1))
+                            except:
+                                pass
+
+                        thumbnail_url = None
+                        img = await card.query_selector('img')
+                        if img:
+                            thumbnail_url = await img.get_attribute('src')
+
+                        product = Product(
+                            marketplace="Walmart",
+                            title=title,
+                            url=prod_url,
+                            price=price,
+                            currency="USD",
+                            rating=rating,
+                            rating_count=None,
+                            is_sponsored=False,
+                            thumbnail_url=thumbnail_url,
+                            primary_features=[],
+                        )
+                        products.append(product)
+                    except:
+                        continue
+
+        except:
+            pass
+        finally:
+            await browser.close()
 
     return products
